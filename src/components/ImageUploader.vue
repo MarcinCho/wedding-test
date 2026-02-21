@@ -67,7 +67,7 @@ const upload = async () => {
   
   const filesToUpload = selectedFiles.value.filter(f => f.status !== 'success');
 
-  const uploadPromises = filesToUpload.map(async (fileItem) => {
+  for (const fileItem of filesToUpload) {
      fileItem.status = 'uploading';
      fileItem.progress = 0;
 
@@ -78,13 +78,17 @@ const upload = async () => {
      if (result.success) {
         fileItem.status = 'success';
         fileItem.progress = 100;
+        // Revoke the object URL immediately to free memory on mobile browsers.
+        // We will no longer show the thumbnail in the success state.
+        if (fileItem.previewUrl) {
+            URL.revokeObjectURL(fileItem.previewUrl);
+            fileItem.previewUrl = null;
+        }
      } else {
         fileItem.status = 'error';
         fileItem.errorMessage = result.message || 'Upload failed.';
      }
-  });
-
-  await Promise.all(uploadPromises);
+  }
 
   const hasErrors = selectedFiles.value.some(f => f.status === 'error');
   
@@ -93,15 +97,15 @@ const upload = async () => {
      globalErrorMessage.value = 'Some files failed to upload.';
   } else {
      globalUploadStatus.value = 'success';
-     // Don't revoke URLs immediately on success so the user can still see what they uploaded
-     // URL.revokeObjectURL is handled in resetState or when adding new items.
   }
 
   isUploading.value = false;
 };
 
 const resetState = () => {
-  selectedFiles.value.forEach(f => URL.revokeObjectURL(f.previewUrl));
+  selectedFiles.value.forEach(f => {
+    if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+  });
   selectedFiles.value = [];
   isUploading.value = false;
   globalUploadStatus.value = 'idle';
@@ -146,7 +150,8 @@ const resetState = () => {
            :key="fileItem.id"
            class="relative rounded-lg overflow-hidden aspect-square border border-pink-200 shadow-sm"
         >
-          <img :src="fileItem.previewUrl" class="w-full h-full object-cover" />
+          <img v-if="fileItem.previewUrl" :src="fileItem.previewUrl" class="w-full h-full object-cover" />
+          <div v-else class="w-full h-full bg-gray-200"></div>
           
           <button 
             v-if="!isUploading"
@@ -211,14 +216,9 @@ const resetState = () => {
       <h3 class="text-xl font-bold text-gray-800">Upload Successful!</h3>
       <p class="text-gray-600">Your {{ selectedFiles.length }} photo(s) have been securely saved.</p>
       
-      <!-- Show previews of uploaded images -->
-      <div class="flex justify-center gap-2 flex-wrap max-h-40 overflow-y-auto mb-4">
-          <img 
-             v-for="fileItem in selectedFiles" 
-             :key="fileItem.id"
-             :src="fileItem.previewUrl" 
-             class="w-12 h-12 object-cover rounded-md border border-gray-300"
-          />
+      <!-- Previews are removed to save memory, display a count instead -->
+      <div class="mb-4">
+        <p class="text-gray-500 italic">Memory successfully freed</p>
       </div>
 
       <button 
