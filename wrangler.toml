@@ -1,0 +1,8 @@
+name = "wedding-spa"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-09-23"
+
+[[r2_buckets]]
+binding = "EVENT_PHOTOS_BUCKET"
+bucket_name = "event-photos"
+preview_bucket_name = "event-photos-preview"

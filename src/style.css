@@ -1,0 +1,16 @@
+@font-face {
+  font-family: Cinzel;
+  src: url("src/assets/fonts/Cinzel.ttf");
+}
+
+@font-face {
+  font-family: "Amsterdam";
+  src: url("assets/fonts/Amsterdam.ttf");
+}
+
+@import "tailwindcss";
+
+@theme {
+  --font-cinzel: "Cinzel", serif;
+  --font-amsterdam: "Amsterdam";
+}
