@@ -24,4 +24,5 @@ dist-ssr
 *.sw?
 
 # my files
-mynotes.md
+
+*.toml

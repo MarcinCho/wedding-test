@@ -1,12 +1,72 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { uploadImage } from '../api.js';
 import ProgressBar from './ProgressBar.vue';
+
+const guestName = ref('');
+const deviceId = ref('');
+const inputName = ref('');
+const showNamePrompt = ref(true);
+
+const myPhotos = ref([]);
+const isFetchingPhotos = ref(false);
+const showMyPhotos = ref(false);
 
 const selectedFiles = ref([]);
 const isUploading = ref(false);
 const globalUploadStatus = ref('idle');
 const globalErrorMessage = ref('');
+
+onMounted(() => {
+  const storedName = localStorage.getItem('wedding_guestName');
+  const storedDevice = localStorage.getItem('wedding_deviceId');
+  if (storedName && storedDevice) {
+    guestName.value = storedName;
+    deviceId.value = storedDevice;
+    showNamePrompt.value = false;
+  }
+});
+
+const saveGuestName = () => {
+  if (inputName.value.trim() === '') return;
+  guestName.value = inputName.value.trim();
+  deviceId.value = crypto.randomUUID();
+  localStorage.setItem('wedding_guestName', guestName.value);
+  localStorage.setItem('wedding_deviceId', deviceId.value);
+  showNamePrompt.value = false;
+};
+
+const fetchMyPhotos = async () => {
+  if (!deviceId.value) return;
+  isFetchingPhotos.value = true;
+  showMyPhotos.value = true;
+  try {
+    const res = await fetch(`/api/my-photos?deviceId=${deviceId.value}`);
+    const data = await res.json();
+    if (data.success && data.photos) {
+      myPhotos.value = data.photos;
+    }
+  } catch (err) {
+    console.error("Failed to fetch photos", err);
+  } finally {
+    isFetchingPhotos.value = false;
+  }
+};
+
+const deletePhoto = async (photoKey) => {
+  if (!confirm("Are you sure you want to delete this photo forever?")) return;
+  
+  try {
+    // Optimistic UI update
+    myPhotos.value = myPhotos.value.filter(p => p.key !== photoKey);
+    
+    await fetch(`/api/delete?key=${encodeURIComponent(photoKey)}&deviceId=${encodeURIComponent(deviceId.value)}`, {
+      method: 'DELETE'
+    });
+  } catch (err) {
+    console.error("Failed to delete photo", err);
+  }
+};
 
 const handleFileSelect = (event) => {
   const target = event.target;
@@ -71,7 +131,7 @@ const upload = async () => {
      fileItem.status = 'uploading';
      fileItem.progress = 0;
 
-     const result = await uploadImage(fileItem.file, (progress) => {
+     const result = await uploadImage(fileItem.file, guestName.value, deviceId.value, (progress) => {
         fileItem.progress = progress;
      });
 
@@ -116,9 +176,31 @@ const resetState = () => {
 <template>
   <div class="w-full max-w-md mx-auto p-4 bg-gray-100 bg-linear-75 from-purple-100 to-pink-200 rounded-lg shadow-xl">
     
-    <!-- Upload Area -->
-    <div 
-      v-if="globalUploadStatus !== 'success' && !isUploading"
+    
+    <!-- Guest Name Prompt -->
+    <div v-if="showNamePrompt" class="p-6 text-center">
+      <h3 class="text-xl font-bold font-[Cinzel] text-gray-800 mb-2">Who is sharing these wonderful moments?</h3>
+      <p class="text-sm text-gray-600 mb-4">Please enter your name so we know who to thank!</p>
+      <input 
+        v-model="inputName" 
+        @keyup.enter="saveGuestName"
+        type="text" 
+        placeholder="Your Name (e.g. John & Jane)" 
+        class="w-full p-3 border border-pink-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 mb-4 text-center"
+      />
+      <button 
+        @click="saveGuestName"
+        :disabled="inputName.trim() === ''"
+        class="w-full bg-pink-500 hover:bg-pink-600 disabled:bg-gray-400 text-white font-bold py-3 px-6 rounded-lg shadow-md transition-colors"
+      >
+        Continue
+      </button>
+    </div>
+
+    <div v-else>
+      <!-- Upload Area -->
+      <div 
+        v-if="globalUploadStatus !== 'success' && !isUploading"
       class="border-2 border-dashed border-pink-300 bg-[#dbb5d679] rounded-lg p-8 text-center hover:border-pink-500 transition-colors cursor-pointer relative mb-4"
       @dragover.prevent
       @drop="handleDrop"
@@ -227,6 +309,48 @@ const resetState = () => {
       >
         Upload more photos
       </button>
+    </div>
+
+    <!-- View My Photos Button & Gallery -->
+    <div v-if="!showNamePrompt" class="mt-8 border-t border-pink-200 pt-6">
+      <button 
+        v-if="!showMyPhotos"
+        @click="fetchMyPhotos"
+        class="text-pink-600 hover:text-pink-800 font-medium underline transition-colors"
+      >
+        View My Uploaded Photos
+      </button>
+
+      <div v-if="showMyPhotos" class="text-left">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="font-bold text-gray-800 font-[Cinzel]">My Uploaded Photos</h3>
+          <button @click="showMyPhotos = false" class="text-sm text-gray-500 hover:text-gray-700">Close</button>
+        </div>
+        
+        <div v-if="isFetchingPhotos" class="text-center py-4 text-gray-500">
+          Loading your moments...
+        </div>
+        <div v-else-if="myPhotos.length === 0" class="text-center py-4 text-gray-500 text-sm">
+          You haven't uploaded any photos yet.
+        </div>
+        <div v-else class="grid grid-cols-3 gap-2">
+          <div v-for="photo in myPhotos" :key="photo.key" class="relative group aspect-square rounded-lg overflow-hidden border border-pink-100 shadow-sm bg-gray-200">
+             <img :src="photo.url" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" loading="lazy" />
+             
+             <!-- Delete Overlay Button -->
+             <button 
+                @click.stop="deletePhoto(photo.key)"
+                class="absolute top-1 right-1 bg-red-600/80 hover:bg-red-700 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Delete Photo"
+             >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+             </button>
+          </div>
+        </div>
+      </div>
+    </div>
     </div>
 
   </div>

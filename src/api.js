@@ -1,8 +1,10 @@
-export async function uploadImage(file, onProgress) {
+export async function uploadImage(file, guestName, deviceId, onProgress) {
     return new Promise((resolve) => {
         const xhr = new XMLHttpRequest();
         const formData = new FormData();
         formData.append('file', file);
+        if (guestName) formData.append('guestName', guestName);
+        if (deviceId) formData.append('deviceId', deviceId);
 
         // Use environment variable for API URL or default to local proxy/relative path
         const apiUrl = import.meta.env.VITE_API_URL || '/api/upload';
