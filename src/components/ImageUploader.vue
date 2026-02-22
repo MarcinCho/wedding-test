@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { uploadImage } from '../api.js';
+import { uploadImage, getStreamUploadUrl, uploadVideoToStream } from '../api.js';
 import ProgressBar from './ProgressBar.vue';
 
 const guestName = ref('');
@@ -9,13 +9,16 @@ const inputName = ref('');
 const showNamePrompt = ref(true);
 
 const myPhotos = ref([]);
+const myVideos = ref([]);
 const isFetchingPhotos = ref(false);
 const showMyPhotos = ref(false);
+const isManageMode = ref(false);
 
 const selectedFiles = ref([]);
 const isUploading = ref(false);
 const globalUploadStatus = ref('idle');
 const globalErrorMessage = ref('');
+const streamCustomerId = import.meta.env.VITE_CF_STREAM_CUSTOMER_ID || 'yourid';
 
 onMounted(() => {
   const storedName = localStorage.getItem('wedding_guestName');
@@ -40,14 +43,24 @@ const fetchMyPhotos = async () => {
   if (!deviceId.value) return;
   isFetchingPhotos.value = true;
   showMyPhotos.value = true;
+  isManageMode.value = false;
   try {
-    const res = await fetch(`/api/my-photos?deviceId=${deviceId.value}`);
-    const data = await res.json();
-    if (data.success && data.photos) {
-      myPhotos.value = data.photos;
+    const [resPhotos, resVideos] = await Promise.all([
+      fetch(`/api/my-photos?deviceId=${deviceId.value}`),
+      fetch(`/api/my-videos?deviceId=${deviceId.value}`)
+    ]);
+    
+    const dataPhotos = await resPhotos.json();
+    if (dataPhotos.success && dataPhotos.photos) {
+      myPhotos.value = dataPhotos.photos;
+    }
+
+    const dataVideos = await resVideos.json();
+    if (dataVideos.success && dataVideos.videos) {
+      myVideos.value = dataVideos.videos;
     }
   } catch (err) {
-    console.error("Failed to fetch photos", err);
+    console.error("Failed to fetch media", err);
   } finally {
     isFetchingPhotos.value = false;
   }
@@ -92,14 +105,18 @@ const processFiles = (files) => {
      }
   }
 
-  const newItems = files.filter(f => f.type.startsWith('image/')).map(file => ({
-    file,
-    id: crypto.randomUUID(),
-    previewUrl: URL.createObjectURL(file),
-    progress: 0,
-    status: 'idle', // 'idle', 'uploading', 'success', 'error'
-    errorMessage: ''
-  }));
+  const newItems = files.filter(f => f.type.startsWith('image/') || f.type.startsWith('video/')).map(file => {
+    const isVideo = file.type.startsWith('video/');
+    return {
+      file,
+      id: crypto.randomUUID(),
+      previewUrl: isVideo ? null : URL.createObjectURL(file), // Video preview generates differently or just show an icon
+      isVideo,
+      progress: 0,
+      status: 'idle', // 'idle', 'uploading', 'success', 'error'
+      errorMessage: ''
+    };
+  });
 
   selectedFiles.value = [...selectedFiles.value, ...newItems];
 };
@@ -131,9 +148,25 @@ const upload = async () => {
      fileItem.status = 'uploading';
      fileItem.progress = 0;
 
-     const result = await uploadImage(fileItem.file, guestName.value, deviceId.value, (progress) => {
-        fileItem.progress = progress;
-     });
+     let result;
+     if (fileItem.isVideo) {
+         try {
+             const streamData = await getStreamUploadUrl(guestName.value, deviceId.value);
+             if (streamData.success && streamData.uploadUrl) {
+                 result = await uploadVideoToStream(fileItem.file, streamData.uploadUrl, (progress) => {
+                     fileItem.progress = progress;
+                 });
+             } else {
+                 result = { success: false, message: streamData.message || 'Failed to get upload URL' };
+             }
+         } catch (e) {
+             result = { success: false, message: e.message };
+         }
+     } else {
+         result = await uploadImage(fileItem.file, guestName.value, deviceId.value, (progress) => {
+            fileItem.progress = progress;
+         });
+     }
 
      if (result.success) {
         fileItem.status = 'success';
@@ -207,7 +240,7 @@ const resetState = () => {
     >
       <input 
         type="file" 
-        accept="image/*" 
+        accept="image/*,video/mp4,video/quicktime,video/webm" 
         multiple
         class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
         @change="handleFileSelect"
@@ -233,6 +266,11 @@ const resetState = () => {
            class="relative rounded-lg overflow-hidden aspect-square border border-pink-200 shadow-sm"
         >
           <img v-if="fileItem.previewUrl" :src="fileItem.previewUrl" class="w-full h-full object-cover" />
+          <div v-else-if="fileItem.isVideo" class="w-full h-full bg-gray-800 flex items-center justify-center">
+             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-white" viewBox="0 0 20 20" fill="currentColor">
+               <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
+             </svg>
+          </div>
           <div v-else class="w-full h-full bg-gray-200"></div>
           
           <button 
@@ -324,30 +362,64 @@ const resetState = () => {
       <div v-if="showMyPhotos" class="text-left">
         <div class="flex justify-between items-center mb-4">
           <h3 class="font-bold text-gray-800 font-[Cinzel]">My Uploaded Photos</h3>
-          <button @click="showMyPhotos = false" class="text-sm text-gray-500 hover:text-gray-700">Close</button>
+          <div class="flex gap-4">
+            <button v-if="myPhotos.length > 0" @click="isManageMode = !isManageMode" class="text-sm font-medium" :class="isManageMode ? 'text-pink-600' : 'text-gray-500 hover:text-gray-700'">
+              {{ isManageMode ? 'Done' : 'Manage' }}
+            </button>
+            <button @click="showMyPhotos = false; isManageMode = false" class="text-sm text-gray-500 hover:text-gray-700">Close</button>
+          </div>
         </div>
         
         <div v-if="isFetchingPhotos" class="text-center py-4 text-gray-500">
           Loading your moments...
         </div>
-        <div v-else-if="myPhotos.length === 0" class="text-center py-4 text-gray-500 text-sm">
-          You haven't uploaded any photos yet.
+        <div v-else-if="myPhotos.length === 0 && myVideos.length === 0" class="text-center py-4 text-gray-500 text-sm">
+          You haven't uploaded any media yet.
         </div>
-        <div v-else class="grid grid-cols-3 gap-2">
-          <div v-for="photo in myPhotos" :key="photo.key" class="relative group aspect-square rounded-lg overflow-hidden border border-pink-100 shadow-sm bg-gray-200">
-             <img :src="photo.url" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" loading="lazy" />
-             
-             <!-- Delete Overlay Button -->
-             <button 
-                @click.stop="deletePhoto(photo.key)"
-                class="absolute top-1 right-1 bg-red-600/80 hover:bg-red-700 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Delete Photo"
-             >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-             </button>
+        <div v-else class="space-y-6">
+          
+          <div v-if="myPhotos.length > 0">
+            <h4 class="font-semibold text-gray-700 mb-2">Photos</h4>
+            <div class="grid grid-cols-3 gap-2">
+              <div v-for="photo in myPhotos" :key="photo.key" class="relative group aspect-square rounded-lg overflow-hidden border border-pink-100 shadow-sm bg-gray-200">
+                 <img :src="photo.url" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" loading="lazy" />
+                 
+                 <button 
+                    v-if="isManageMode"
+                    @click.stop="deletePhoto(photo.key)"
+                    class="absolute top-2 right-2 bg-red-600 hover:bg-red-700 text-white p-1.5 rounded-full shadow-md transition-transform active:scale-95"
+                    title="Delete Photo"
+                 >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                 </button>
+              </div>
+            </div>
           </div>
+
+          <div v-if="myVideos.length > 0">
+            <h4 class="font-semibold text-gray-700 mb-2">Videos</h4>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div v-for="video in myVideos" :key="video.uid" class="relative group rounded-lg overflow-hidden border border-pink-100 shadow-sm bg-black">
+                 <iframe 
+                    v-if="video.status === 'ready'"
+                    :src="`https://customer-${streamCustomerId}.cloudflarestream.com/${video.uid}/iframe?controls=true`"
+                    class="w-full aspect-video"
+                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;" 
+                    allowfullscreen
+                 ></iframe>
+                 <div v-else class="w-full aspect-video flex flex-col items-center justify-center text-white p-4 text-center">
+                    <svg class="animate-spin h-8 w-8 text-pink-400 mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                       <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                       <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p class="text-xs">Processing Video...</p>
+                 </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>

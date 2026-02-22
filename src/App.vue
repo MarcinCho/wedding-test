@@ -4,6 +4,8 @@ import CountdownComp from "./components/CountdownComp.vue";
 import ImageUploader from "./components/ImageUploader.vue";
 import BasicInfo from "./components/BasicInfo.vue";
 import RSVPForm from "./components/RSVPForm.vue";
+import EventDetails from "./components/EventDetails.vue";
+import TheStory from "./components/TheStory.vue";
 
 // Define the target date for when the photo upload should be active.
 // Replace this with the actual date! Example: '2026-06-15T00:00:00'
@@ -18,6 +20,7 @@ const isAfterTargetDate = computed(() => {
 const showCountdown = ref(false);
 const showBasicInfo = ref(false);
 const showRSVPForm = ref(false);
+const showStory = ref(false);
 </script>
 
 <template>
@@ -56,6 +59,13 @@ const showRSVPForm = ref(false);
           >
             {{ showRSVPForm ? 'Hide RSVP' : 'View RSVP' }}
           </button>
+          <button 
+            @click="showStory = !showStory"
+            class="px-4 py-2 rounded-full border border-pink-300 text-pink-700 hover:bg-pink-50 transition-colors text-sm font-medium"
+            :class="{ 'bg-pink-100 border-pink-400': showStory }"
+          >
+            {{ showStory ? 'Hide Story' : 'View Story' }}
+          </button>
         </div>
       </div>
       <hr class="my-4 border-gray-200" />
@@ -66,16 +76,20 @@ const showRSVPForm = ref(false);
       <CountdownComp />
     </div>
     
-    <div v-if="!isAfterTargetDate" class="hidden">
-      <!-- We don't want ImageUploader here anymore, it's moved to the isAfterTargetDate block -->
-    </div>
-    
-    <div v-show="!isAfterTargetDate || showBasicInfo">
+    <div v-show="!isAfterTargetDate">
       <BasicInfo />
+    </div>
+
+    <div v-show="!isAfterTargetDate || showBasicInfo">
+      <EventDetails/>
     </div>
     
     <div v-show="!isAfterTargetDate || showRSVPForm">
       <RSVPForm />
+    </div>
+
+    <div v-show="showStory">
+      <TheStory />
     </div>
 
     <p class="flex justify-center p-5">

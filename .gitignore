@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 *.local
+.wrangler
+.vscode
+
 
 # Editor directories and files
 .vscode/*
@@ -24,5 +27,4 @@ dist-ssr
 *.sw?
 
 # my files
-
-*.toml
+wrangler.toml
