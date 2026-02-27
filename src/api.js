@@ -33,25 +33,26 @@ export async function uploadImage(file, guestName, deviceId, onProgress) {
     });
 }
 
-export async function getStreamUploadUrl(guestName, deviceId) {
+export async function getDriveUploadUrl(file, guestName, deviceId) {
     const formData = new FormData();
     formData.append('guestName', guestName);
     formData.append('deviceId', deviceId);
+    formData.append('mimeType', file.type);
+    formData.append('fileName', file.name);
 
-    const res = await fetch('/api/stream-url', {
+    const res = await fetch('/api/drive/upload-url', {
         method: 'POST',
         body: formData
     });
     return await res.json();
 }
 
-export async function uploadVideoToStream(file, uploadUrl, onProgress) {
+export async function uploadVideoToDrive(file, uploadUrl, onProgress) {
     return new Promise((resolve) => {
         const xhr = new XMLHttpRequest();
-        const formData = new FormData();
-        formData.append('file', file);
 
-        xhr.open('POST', uploadUrl);
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('Content-Type', file.type);
 
         xhr.upload.onprogress = (event) => {
             if (event.lengthComputable) {
@@ -61,7 +62,7 @@ export async function uploadVideoToStream(file, uploadUrl, onProgress) {
         };
 
         xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
+            if (xhr.status === 200 || xhr.status === 201) {
                 resolve({ success: true });
             } else {
                 resolve({ success: false, message: xhr.responseText || 'Video upload failed' });
@@ -72,7 +73,6 @@ export async function uploadVideoToStream(file, uploadUrl, onProgress) {
             resolve({ success: false, message: 'Network error during video upload' });
         };
 
-        xhr.send(formData);
+        xhr.send(file);
     });
 }
-

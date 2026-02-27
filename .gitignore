@@ -27,4 +27,5 @@ dist-ssr
 *.sw?
 
 # my files
-wrangler.toml
+wrangler.toml   
+.dev.vars
